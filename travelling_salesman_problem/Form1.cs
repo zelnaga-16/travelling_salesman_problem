@@ -4,6 +4,7 @@ using GMap.NET.WindowsForms;
 using GMap.NET;
 using static System.Net.Mime.MediaTypeNames;
 using GMap.NET.WindowsPresentation;
+using System.Text;
 
 namespace travelling_salesman_problem
 {
@@ -89,8 +90,8 @@ namespace travelling_salesman_problem
                 Math.Sin(dLon / 2d) * Math.Sin(dLon / 2d);
             var c = 2d * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1d - a));
             var d = R * c;
-
-            return d;
+            
+            return Math.Abs(d); ;
         }
 
         public Form1()
@@ -132,55 +133,46 @@ namespace travelling_salesman_problem
 
         private void solve_button_Click(object sender, EventArgs e)
         {
-            GMapOverlay routes = new GMapOverlay("routes"); //Создаем объект наложения (Overlay)
-            List<PointLatLng> points = new List<PointLatLng>(); //Создаем лист, где будут наши точки пути.
+            GMapOverlay routes = new GMapOverlay("routes"); 
+            List<PointLatLng> points = new List<PointLatLng>(); 
+            double[,] mat = new double[markers.Count, markers.Count];
 
-            List<Marker> markers_copy = markers.ToList();
-
-            points.Add(new PointLatLng(markers[0].Get_latitude(), markers[0].Get_longitude()));
-            markers_copy.Remove(markers[0]);
-
-            for (int i = 0; i < markers.Count - 1; i++)
+            for(int i = 0;i< markers.Count; i++) 
             {
-                List<double> distances = new List<double>();
-                int res = 0;
-
-                for (int j = i + 1; j < markers.Count; j++)
+                for (int j = 0; j < markers.Count; j++)
                 {
-                    distances.Add(Get_distance(markers[i], markers[j]));
-                }
-
-                if (distances.Count >= 2)
-                {
-                    for (int j = i + 1; j < markers.Count; j++)
-                    {
-                        if (distances[j-i] < distances[res])
-                        { res = j-i; }
-                    }
-                    res += i;
-                    points.Add(new PointLatLng(markers[res].Get_latitude(), markers[res].Get_longitude()));
-                    markers_copy.Remove(markers[res]);
+                    if(i== j) continue;
+                    mat[i, j] = Get_distance(markers[i], markers[j]);
                 }
             }
-            points.Add(new PointLatLng(markers_copy.Last().Get_latitude(), markers_copy.Last().Get_longitude()));
+            string indexes = string.Join(Environment.NewLine, Waybill.GetWaybills(mat).OrderBy(wb => wb.Length));
+
+            indexes = indexes.Replace(",","");
+            indexes = indexes.Replace(" ", "");
+            indexes = indexes.Remove(indexes.IndexOf("="));
+            foreach (char c in indexes) 
+            {
+                int num = c;
+                num -= 48;
+            points.Add(new PointLatLng(markers[num].Get_latitude(), markers[num].Get_longitude()));
+            }
 
             gMapControl1.Overlays.Clear();
 
-            GMap.NET.WindowsForms.GMapRoute route = new GMap.NET.WindowsForms.GMapRoute(points, "First"); //Создаем из полученных точнек маршрут и даем ей имя.
-            route.Stroke = new Pen(Color.Red, 3); //Задаем цвет и ширину линии
-            routes.Routes.Add(route); //Добавляем на наш Overlay маршрут
-            gMapControl1.Overlays.Add(routes); //Накладываем Overlay на карту.
+            GMap.NET.WindowsForms.GMapRoute route = new GMap.NET.WindowsForms.GMapRoute(points, "First"); 
+            route.Stroke = new Pen(Color.Red, 3);
+            routes.Routes.Add(route);
+            gMapControl1.Overlays.Add(routes);
 
-            GMapOverlay markersOverlay = new GMapOverlay("marker"); //Создаем Overlay
-            GMarkerGoogle markerStart = new GMarkerGoogle(points.FirstOrDefault(), GMarkerGoogleType.blue); //Создаем новую точку и даем ей координаты первого элемента из листа координат и синий цвет
-            GMarkerGoogle markerEnd = new GMarkerGoogle(points.LastOrDefault(), GMarkerGoogleType.red); //Тоже самое, но красный цвет и последний из списка координат.
-            markerStart.ToolTip = new GMapRoundedToolTip(markerStart); //Указываем тип всплывающей подсказки для точки старта
-            markerEnd.ToolTip = new GMapBaloonToolTip(markerEnd); //Другой тип подсказки для точки окончания (для теста)
+            GMapOverlay markersOverlay = new GMapOverlay("marker");
+            for(int i = 0; i < points.Count-1; i++) 
+            {
+                GMarkerGoogle marker_new = new GMarkerGoogle(points[i], GMarkerGoogleType.blue);
+                markersOverlay.Markers.Add(marker_new);
+            }
 
-            markersOverlay.Markers.Add(markerStart); //Добавляем точки
-            markersOverlay.Markers.Add(markerEnd); //В наш оверлей маркеров
 
-            gMapControl1.Overlays.Add(markersOverlay); //Добавляем оверлей на карту
+            gMapControl1.Overlays.Add(markersOverlay);
         }
     }
     public class Marker
@@ -208,4 +200,76 @@ namespace travelling_salesman_problem
             return longitude;
         }
     }
+    public class Waybill
+    {
+
+        public IEnumerable<int> Indexes { get; }
+
+        public double Length { get; }
+
+        public Waybill(IEnumerable<int> indexes, double length)
+        {
+            Indexes = indexes;
+            Length = length;
+        }
+
+        private Waybill() { Indexes = Enumerable.Empty<int>(); }
+
+        public static Waybill Empty = new Waybill();
+
+        
+        public Waybill Append(int index, double length)
+        {
+            if (length < 0)
+                throw new ArgumentOutOfRangeException("Distance cannot be negative");
+
+            return new Waybill(Indexes.Append(index), Length + length);
+        }
+
+        
+        public Waybill Prepend(int index, double length)
+        {
+            if (length < 0)
+                throw new ArgumentOutOfRangeException("Distance cannot be negative");
+
+            return new Waybill(Indexes.Prepend(index), Length + length);
+        }
+
+        public override string ToString()
+        {
+            return $"{string.Join(", ", Indexes)} = {Length};";
+        }
+        public static IEnumerable<Waybill> GetWaybills(double[,] distances, int first = 0, int end = 0, IList<int> enabledIndexes = null)
+        {
+            int rows = distances.GetLength(0);
+
+            if (enabledIndexes == null)
+            {
+                enabledIndexes = Enumerable.Range(0, rows).ToList();
+                enabledIndexes.Remove(first);
+            }
+
+            if (enabledIndexes.Count == 0)
+            {
+
+                Waybill waybill = Waybill.Empty.Append(first, 0);
+
+                if (first != end)
+                    yield return waybill.Append(end, distances[first, end]);
+
+                yield break;
+            }
+
+            foreach (int index in enabledIndexes)
+            {
+                double length = distances[first, index];
+                List<int> nextIndexes = enabledIndexes.ToList();
+                nextIndexes.Remove(index);
+                foreach (Waybill waybill in GetWaybills(distances, index, end, nextIndexes))
+                    yield return waybill.Prepend(first, length); ;
+            }
+        }
+    }
+
+    
 }
